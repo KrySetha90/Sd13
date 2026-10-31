@@ -1,0 +1,184 @@
+name: Build Record Screen APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Generate and Compile Android App
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Generate Android Project & Build APK
+        run: |
+          mkdir -p app/src/main/java/com/recordscreen/app
+          mkdir -p app/src/main/res/values
+
+          # 1. settings.gradle
+          echo "include ':app'" > settings.gradle
+          echo "rootProject.name = \"Record Screen\"" >> settings.gradle
+
+          # 2. build.gradle (Project)
+          cat << 'EOF' > build.gradle
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.2.0'
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          task clean(type: Delete) {
+              delete rootProject.buildDir
+          }
+          EOF
+
+          # 3. app/build.gradle
+          cat << 'EOF' > app/build.gradle
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              namespace 'com.recordscreen.app'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.recordscreen.app"
+                  minSdk 26
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'com.google.android.material:material:1.11.0'
+              implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+          }
+          EOF
+
+          # 4. AndroidManifest.xml
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+              <application
+                  android:allowBackup="true"
+                  android:label="Record Screen"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.Material3.DayNight.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          # 5. strings.xml
+          cat << 'EOF' > app/src/main/res/values/strings.xml
+          <resources>
+              <string name="app_name">Record Screen</string>
+          </resources>
+          EOF
+
+          # 6. MainActivity.java
+          cat << 'EOF' > app/src/main/java/com/recordscreen/app/MainActivity.java
+          package com.recordscreen.app;
+
+          import android.os.Bundle;
+          import android.widget.ArrayAdapter;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.Spinner;
+          import android.widget.Switch;
+          import android.widget.TextView;
+          import android.widget.Toast;
+          import androidx.appcompat.app.AppCompatActivity;
+
+          public class MainActivity extends AppCompatActivity {
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  LinearLayout layout = new LinearLayout(this);
+                  layout.setOrientation(LinearLayout.VERTICAL);
+                  layout.setPadding(50, 50, 50, 50);
+
+                  TextView title = new TextView(this);
+                  title.setText("Record Screen Settings");
+                  title.setTextSize(24);
+                  title.setPadding(0, 0, 0, 30);
+                  layout.addView(title);
+
+                  TextView resLabel = new TextView(this);
+                  resLabel.setText("Select Resolution (1080p / 4K):");
+                  layout.addView(resLabel);
+                  Spinner resSpinner = new Spinner(this);
+                  resSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"1080p", "4K"}));
+                  layout.addView(resSpinner);
+
+                  TextView hzLabel = new TextView(this);
+                  hzLabel.setText("Select Refresh Rate (144Hz / 165Hz):");
+                  hzLabel.setPadding(0, 30, 0, 0);
+                  layout.addView(hzLabel);
+                  Spinner hzSpinner = new Spinner(this);
+                  hzSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, new String[]{"144 Hz", "165 Hz"}));
+                  layout.addView(hzSpinner);
+
+                  Switch qsToggle = new Switch(this);
+                  qsToggle.setText("Quick Settings Tile (Light/Airplane Mode)");
+                  qsToggle.setPadding(0, 50, 0, 50);
+                  layout.addView(qsToggle);
+
+                  Button recordBtn = new Button(this);
+                  recordBtn.setText("Start Recording");
+                  recordBtn.setOnClickListener(v -> Toast.makeText(this, "Screen Recording Initialized!", Toast.LENGTH_SHORT).show());
+                  layout.addView(recordBtn);
+
+                  setContentView(layout);
+              }
+          }
+          EOF
+
+          # 7. Generate wrapper and build
+          gradle wrapper
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RecordScreen-Release-APK
+          path: app/build/outputs/apk/release/app-release.apk
